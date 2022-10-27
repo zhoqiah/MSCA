@@ -195,7 +195,7 @@ class FuseModel(nn.Module):
             ActivateFun(opt)
         )  # 2048
         # self.encoder_layer = TransformerEncoderLayer(d_model=768, nhead=8)
-        self.transformer = Transformer(nhead=1, num_encoder_layers=1, num_decoder_layers=1, d_model=768, dim_feedforward=56)  # 4,1,1,768,128;
+        self.transformer = Transformer(nhead=1, num_encoder_layers=1, num_decoder_layers=1, d_model=768, dim_feedforward=128)  # 4,1,1,768,128;
 
         self.multiheadattention = MultiheadAttention(768, 16, dropout=0.1)
         # self.multiheadattention = layers.MultiHeadAttention(head, dim, dim, dim, dropout=dropout)
