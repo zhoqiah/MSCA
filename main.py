@@ -1,7 +1,5 @@
 """
-Name: main
-Date: 2022/4/11 上午10:25
-Version: 1.0
+Date: 2022/10/27
 """
 
 import os
@@ -105,7 +103,6 @@ if __name__ == '__main__':
     assert opt.batch_size % opt.acc_grad == 0
     opt.acc_batch_size = opt.batch_size // opt.acc_grad
 
-    # CE（交叉熵），SCE（标签平滑的交叉熵），Focal（focal loss），Ghm（ghm loss）
     critertion = None
     if opt.loss_type == 'CE':
         critertion = nn.CrossEntropyLoss()
@@ -124,7 +121,7 @@ if __name__ == '__main__':
                 python -m torch.distributed.launch --nproc_per_node=2 main.py
                 """
                 print('当前GPU编号：', opt.local_rank)
-                torch.cuda.set_device(opt.local_rank) # 在进行其他操作之前必须先设置这个
+                torch.cuda.set_device(opt.local_rank)
                 torch.distributed.init_process_group(backend='nccl')
                 cl_fuse_model = cl_fuse_model.cuda()
                 cl_fuse_model = nn.parallel.DistributedDataParallel(cl_fuse_model, find_unused_parameters=True)
@@ -138,15 +135,7 @@ if __name__ == '__main__':
     if opt.text_model == 'bert-base':
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased/vocab.txt')
 
-    if opt.data_type == 'HFM':
-        data_path_root = abl_path + 'dataset/data/HFM/'
-        train_data_path = data_path_root + 'train.json'
-        dev_data_path = data_path_root + 'valid.json'
-        test_data_path = data_path_root + 'test.json'
-        photo_path = data_path_root + '/dataset_image'
-        image_coordinate = None
-        data_translation_path = data_path_root + '/HFM.json'
-    elif opt.data_type == 'fakenews':
+    if opt.data_type == 'fakenews':
         data_path_root = abl_path + 'dataset/data/FAKENews/'
         train_data_path = data_path_root + 'train.json'
         dev_data_path = data_path_root + 'valid.json'
@@ -188,8 +177,6 @@ if __name__ == '__main__':
         data_translation_path = abl_path + 'dataset/data/' + opt.data_type + '/' + opt.data_type + '_translation.json'
 
 
-
-    # data_type:标识数据的类型，1是训练数据，2是开发集，3是测试数据
     train_loader, opt.train_data_len = data_process.data_process(opt, train_data_path, tokenizer, photo_path, data_type=1, data_translation_path=data_translation_path,
                                                                  image_coordinate=image_coordinate)
     dev_loader, opt.dev_data_len = data_process.data_process(opt, dev_data_path, tokenizer, photo_path, data_type=2, data_translation_path=data_translation_path,
