@@ -1,2 +1,4 @@
-datasets
 train.json/valid.json/test.json
+image_id:xxxxxx,
+text:xxxxxxx,
+label:{0,1,2,3,4,5}
