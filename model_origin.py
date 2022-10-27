@@ -1,7 +1,5 @@
 """
-Name: model
-Date: 2022/4/11 上午10:25
-Version: 1.0
+Date: 2022/10/27
 """
 
 import torch.nn.modules as nn
@@ -60,20 +58,6 @@ class ModelParam:
 
 
 def get_extended_attention_mask(attention_mask, input_shape):
-    """
-    Makes broadcastable attention and causal masks so that future and masked tokens are ignored.
-
-    Arguments:
-        attention_mask (:obj:`torch.Tensor`):
-            Mask with ones indicating tokens to attend to, zeros for tokens to ignore.
-        input_shape (:obj:`Tuple[int]`):
-            The shape of the input to the model.
-
-    Returns:
-        :obj:`torch.Tensor` The extended attention mask, with a the same dtype as :obj:`attention_mask.dtype`.
-    """
-    # We can provide a self-attention mask of dimensions [batch_size, from_seq_length, to_seq_length]
-    # ourselves in which case we just need to make it broadcastable to all heads.
     if attention_mask.dim() == 3:
         extended_attention_mask = attention_mask[:, None, :, :]
     elif attention_mask.dim() == 2:
@@ -82,12 +66,6 @@ def get_extended_attention_mask(attention_mask, input_shape):
         raise ValueError(
             f"Wrong shape for input_ids (shape {input_shape}) or attention_mask (shape {attention_mask.shape})"
         )
-
-    # Since attention_mask is 1.0 for positions we want to attend and 0.0 for
-    # masked positions, this operation will create a tensor which is 0.0 for
-    # positions we want to attend and -10000.0 for masked positions.
-    # Since we are adding it to the raw scores before the softmax, this is
-    # effectively the same as removing these entirely.
     extended_attention_mask = extended_attention_mask.to(dtype=torch.float32)  # fp16 compatibility
     extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
     return extended_attention_mask
@@ -155,41 +133,6 @@ class TextModel(nn.Module):
         return output
 
 
-# class ImageModel(nn.Module):
-#     def __init__(self, opt):
-#         super(ImageModel, self).__init__()
-#         if opt.image_model == 'resnet-152':
-#             self.resnet = cv_models.resnet152(pretrained=True)
-#         elif opt.image_model == 'resnet-101':
-#             self.resnet = cv_models.resnet101(pretrained=True)
-#         elif opt.image_model == 'resnet-50':
-#             self.resnet = cv_models.resnet50(pretrained=True)
-#         elif opt.image_model == 'resnet-34':
-#             self.resnet = cv_models.resnet34(pretrained=True)
-#         elif opt.image_model == 'resnet-18':
-#             self.resnet = cv_models.resnet18(pretrained=True)
-#         self.resnet_encoder = nn.Sequential(*(list(self.resnet.children())[:-2]))
-#         self.resnet_avgpool = nn.Sequential(list(self.resnet.children())[-2])
-#         self.output_dim = self.resnet_encoder[7][2].conv3.out_channels
-#
-#         for param in self.resnet.parameters():
-#             if opt.fixed_image_model:
-#                 param.requires_grad = False
-#             else:
-#                 param.requires_grad = True
-#
-#     def get_output_dim(self):
-#         return self.output_dim
-#
-#     def forward(self, images):
-#         image_encoder = self.resnet_encoder(images)
-#         # image_encoder = self.conv_output(image_encoder)
-#         image_cls = self.resnet_avgpool(image_encoder)
-#         image_cls = torch.flatten(image_cls, 1)
-#         print(image_encoder.shape, image_cls.shape)  # 4,2048,7,7 ;  4,2048
-#         return image_encoder, image_cls
-
-
 class FuseModel(nn.Module):
     def __init__(self, opt):
         super(FuseModel, self).__init__()
@@ -199,9 +142,7 @@ class FuseModel(nn.Module):
         self.save_image_index = 0
 
         self.text_model = TextModel(opt)
-        # self.image_model = ImageModel(opt)
         self.vit = ViTModel.from_pretrained('facebook/deit-base-patch16-224')
-        # self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224-in21k')
         # for param in self.vit.parameters():
         #     param.requires_grad = False
 
@@ -266,11 +207,7 @@ class FuseModel(nn.Module):
         transformer_encoder_layer = nn.TransformerEncoderLayer(d_model=opt.tran_dim, nhead=opt.tran_dim//64, dim_feedforward=opt.tran_dim * 4)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer=transformer_encoder_layer, num_layers=opt.tran_num_layers)
         # self.sentence_transformer = SentenceTransformer('all-MiniLM-L6-v2')
-
         self.sentence_transformer = SentenceTransformer('microsoft/mpnet-base')
-        # self.sentence_transformer = SentenceTransformer('bert-base-uncased/')
-        # self.sentence_transformer = SentenceTransformer('multi-qa-mpnet-base-dot-v1')
-        # self.sentence_transformer = SentenceTransformer('distiluse-base-multilingual-cased')
 
         if self.fuse_type == 'att':
             self.output_attention = nn.Sequential(
@@ -283,7 +220,7 @@ class FuseModel(nn.Module):
             nn.Dropout(opt.l_dropout),
             nn.Linear(opt.tran_dim, opt.tran_dim // 2),
             ActivateFun(opt),
-            nn.Linear(opt.tran_dim // 2, 2)  # 此处需要注意
+            nn.Linear(opt.tran_dim // 2, 6)
         )
 
     def forward(self, text_inputs, bert_attention_mask, image_inputs, text_image_mask, text):
@@ -308,60 +245,13 @@ class FuseModel(nn.Module):
         # image_encoder, image_cls = self.v(image_inputs)
         for param in self.vit.parameters():
             param.requires_grad = False
-        # if self.image_output_type == 'all':
-        #     image_encoder = image_encoder.contiguous().view(image_encoder.size(0), -1, image_encoder.size(1))
-        #     image_encoder_init = self.image_change(image_encoder)
-        #     image_cls_init = self.image_cls_change(image_cls)
-        #     image_init = torch.cat((image_cls_init.unsqueeze(1), image_encoder_init), dim=1)
-        # else:
-        #     image_cls_init = self.image_cls_change(image_cls)
-        #     image_init = image_cls_init.unsqueeze(1)
 
-        # image_mask = text_image_mask[:, -image_init.size(1):]
-        # extended_attention_mask = get_extended_attention_mask(image_mask, image_init.size())
-
-        # image_init = self.image_encoder(image_init,
-        #                                      attention_mask=None,
-        #                                      head_mask=None,
-        #                                      encoder_hidden_states=None,
-        #                                      encoder_attention_mask=extended_attention_mask,
-        #                                      past_key_values=None,
-        #                                      use_cache=self.use_cache,
-        #                                      output_attentions=self.text_config.output_attentions,
-        #                                      output_hidden_states=(self.text_config.output_hidden_states),
-        #                                      return_dict=self.text_config.use_return_dict
-        #                                      )
-        # image_init = image_init.last_hidden_state
-        # image_init = self.encoder_layer(image_init)
-        # text_init = self.encoder_layer(text_init)
-
-        # transformer进行多模态特征融合
+        # transformer
         image_init = image_init.permute(1, 0, 2).contiguous()
         text_init = text_init.permute(1, 0, 2).contiguous()
         text_image_cat = self.transformer(image_init, text_init)
-
-        # for i in range(text_image_cat.shape[1]):
-        #     a = text_image_cat[:,i,:]
-        #     a = torch.mean(a, dim=1)
-        #     a = a.detach().cpu().numpy()
-        #     a = a[:196].reshape(14, 14)
-        #     a = a + a.min()
-        #     a = a / a.max() * 255
-        #     plt.imsave("./imgs/{}.png".format(i), a)
-        #
-        #     b = image_inputs[i][0]
-        #     b = b.detach().cpu().numpy()
-        #     plt.imsave("./imgs/{}_img.png".format(i), b)
-
         text_image_cat = self.transformer(sentence, text_image_cat)
         text_image_transformer = text_image_cat.permute(1, 2, 0).contiguous()
-
-
-        # weight hot map
-        # target_layers = text_image_cat.layers[-1]
-        # model =
-        # cam = GradCAM(model=model, target_layers=target_layers, use_cuda=True)
-        # return out
 
         # multiheadattention
         # image_init = image_init.permute(1, 0, 2).contiguous()
@@ -371,51 +261,8 @@ class FuseModel(nn.Module):
         # text_image_transformer, _ = self.multiheadattention(sentence, text_image_transformer, text_image_transformer)
         # text_image_transformer = text_image_transformer.permute(1, 2, 0).contiguous()
 
-
-        # 原来 text_image_cat = torch.cat((text_init, image_init), dim=1)
-        # 此处是单纯concat方式融合
-        # text_image_cat = torch.cat((image_init, text_init), dim=1)
+        # concat
         # text_image_cat = torch.cat((text_init, image_init), dim=1)
-        # text_image_transformer = text_image_cat.permute(0, 2, 1).contiguous()
-        # text_image_transformer = self.text_change(text_image_cat)
-        # text_image_transformer = text_image_transformer.permute(0, 2, 1).contiguous()
-        # text_image_cat1 = torch.cat((text_init, image_init), dim=1)
-        # text_image_cat2 = torch.cat((image_init, text_init), dim=1)
-
-        # text_init = Ortho_algorithm_batch(image_init, text_init)
-        # image_init = Ortho_algorithm_batch(text_init, image_init)
-        # text_image_cat = torch.cat((text_init, image_init), dim=1)
-
-        # 添加正交投影算法提取图像和文本之间的个性特征
-        # text_image_cat = Ortho_algorithm_batch(text_image_cat1, text_image_cat2)
-        # text_image_cat = torch.cat((image_init, text_init), dim=1)
-        # text_image_unique = Ortho_algorithm_unique(text_image_cat1, text_image_cat2)
-        # text_image_common = grad_reverse(text_image_cat, 1)
-        # text_image_unique = text_image_unique.permute(1, 0, 2).contiguous()
-        # text_image_common = text_image_common.permute(1, 0, 2).contiguous()
-        # text_image_common = Ortho_algorithm_common(image_init, text_init)
-        # text_image_fusion = torch.cat((text_image_common, text_image_unique), dim=1)
-        # text_image_transformer = text_image_fusion.permute(1, 2, 0).contiguous()
-        # text_image_fusion = self.transformer(text_image_common, text_image_unique)
-        # text_image_transformer = text_image_fusion.permute(1, 2, 0).contiguous()
-        # text_image_fusion = self.transformer(text_image_common, text_image_unique)
-        # text_image_transformer = text_image_fusion.permute(0, 2, 1).contiguous()
-
-
-        # extended_attention_mask: torch.Tensor = get_extended_attention_mask(text_image_mask, text_inputs.size())
-        # text_image_transformer = self.text_image_encoder(text_image_cat,
-        #                                          attention_mask=extended_attention_mask,
-        #                                          head_mask=None,
-        #                                          encoder_hidden_states=None,
-        #                                          encoder_attention_mask=extended_attention_mask,
-        #                                          past_key_values=None,
-        #                                          use_cache=self.use_cache,
-        #                                          output_attentions=self.text_config.output_attentions,
-        #                                          output_hidden_states=(self.text_config.output_hidden_states),
-        #                                          return_dict=self.text_config.use_return_dict)
-        # text_image_transformer = text_image_transformer.last_hidden_state
-        # text_image_transformer = text_image_transformer.permute(0, 2, 1).contiguous()
-
 
         if self.fuse_type == 'max':
             text_image_output = torch.max(text_image_transformer, dim=2)[0]
@@ -436,7 +283,7 @@ class FuseModel(nn.Module):
             text_image_output = torch.sum(text_image_transformer, dim=2) / text_image_length
             # text_image_output = self.transformer(text_image_output, sentence)
         else:
-            raise Exception('fuse_type设定错误')
+            raise Exception('fuse_type')
         return text_image_output, None, None
 
 
