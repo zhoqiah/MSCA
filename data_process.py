@@ -1,7 +1,6 @@
 """
-Name: data_process
-Date: 2022/4/11 上午10:25
-Version: 1.0
+Date: 2022/10/27
+
 """
 
 from PIL import Image
@@ -60,40 +59,6 @@ class SentenceDataset(Dataset):
                                     tqdm(self.text_list, desc='convert text to token')]
             self.text_translation_id_to_token_list = {index: text_tokenizer.tokenize('[CLS]' + text + '[SEP]') for
                                                          index, text in self.data_translation_id_to_text_dict.items()}
-            # 添加prompt模板
-            # if data['emotion_label'] == "0":
-            #     self.text_token_list = [text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张0的图片') for text in tqdm(self.text_list, desc='convert text to token')]
-            #     self.text_translation_id_to_token_list = {index: text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张0的图片') for index, text in self.data_translation_id_to_text_dict.items()}
-            # elif data['emotion_label'] == "1":
-            #     self.text_token_list = [text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张1的图片') for text in
-            #                             tqdm(self.text_list, desc='convert text to token')]
-            #     self.text_translation_id_to_token_list = {index: text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + 'i这是一张1的图片') for
-            #                                               index, text in self.data_translation_id_to_text_dict.items()}
-            # elif data['emotion_label'] == "2":
-            #     self.text_token_list = [text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张2的图片') for text in
-            #                             tqdm(self.text_list, desc='convert text to token')]
-            #     self.text_translation_id_to_token_list = {index: text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张2的图片') for
-            #                                               index, text in self.data_translation_id_to_text_dict.items()}
-            # elif data['emotion_label'] == "3":
-            #     self.text_token_list = [text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张3的图片') for text in
-            #                             tqdm(self.text_list, desc='convert text to token')]
-            #     self.text_translation_id_to_token_list = {index: text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张3的图片') for
-            #                                               index, text in self.data_translation_id_to_text_dict.items()}
-            # elif data['emotion_label'] == "4":
-            #     self.text_token_list = [text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张4的图片') for text in
-            #                             tqdm(self.text_list, desc='convert text to token')]
-            #     self.text_translation_id_to_token_list = {index: text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张4的图片') for
-            #                                               index, text in self.data_translation_id_to_text_dict.items()}
-            # else:
-            #     self.text_token_list = [text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张5的图片') for text in
-            #                             tqdm(self.text_list, desc='convert text to token')]
-            #     self.text_translation_id_to_token_list = {index: text_tokenizer.tokenize('[CLS]' + text + '[SEP]' + '这是一张5的图片') for
-            #                                               index, text in self.data_translation_id_to_text_dict.items()}
-
-        # self.text_token_list = [text if len(text) < opt.word_length else text[0: opt.word_length] for text in
-        #                         self.text_token_list]
-        # self.text_to_id = [text_tokenizer.convert_tokens_to_ids(text_token) for text_token in
-        #                    tqdm(self.text_token_list, desc='convert text to id')]
 
         self.text_to_id = []
         for text in self.text_token_list:
@@ -211,7 +176,7 @@ class Collate():
             text_mask_cell.extend([1] * self.image_mask_num)
             tran_text_image_mask.append(text_mask_cell[:])
 
-        # 构建正负样本对[label - 0, label - 1, label - 2】,for i in range(3)
+        # 构建正负样本对[label - 0, label - 1, label - 2],for i in range(3)
         # temp_labels = [label-0, label-1]
         # temp_labels =[label-0, label-1, label-2]
         temp_labels = [label - 0, label - 1, label - 2, label - 3, label - 4, label - 5]
