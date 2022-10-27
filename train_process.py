@@ -1,8 +1,5 @@
 """
-Name: train_process
-Date: 2022/4/11 上午10:26
-Version: 1.0
-
+Date: 2022/10/27
 """
 
 import torch
@@ -20,7 +17,6 @@ import torch.nn.functional as F
 
 
 def simcse_unsup_loss(y_pred, device='cuda:0', temp=0.05):
-    """无监督的损失函数
     y_pred (tensor): bert的输出, [batch_size * 2, 768]
     """
     # 得到y_pred对应的label, [1, 0, 3, 2, ..., batch_size-1, batch_size-2]
@@ -41,7 +37,6 @@ def simcse_unsup_loss(y_pred, device='cuda:0', temp=0.05):
 
 
 def simcse_sup_loss(y_pred, device='cuda:0'):
-    """有监督的损失函数
     y_pred (tensor): bert的输出, [batch_size * 3, 768]
 
     """
@@ -133,10 +128,9 @@ def train_process(opt, train_loader, dev_loader, test_loader, cl_model, criterti
 
             classify_loss = critertion(origin_res, labels)
             cl_loss = critertion(l_pos_neg, cl_lables)
-            # 去掉对比学习损失
             loss = classify_loss / opt.acc_batch_size
 
-            # 加上simcse
+            # add simcse
             # simcse_loss = simcse_sup_loss(origin_res)
             # logit, flat_labels = flat_loss(origin_res)
             # flatloss = critertion(logit, flat_labels)
