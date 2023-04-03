@@ -1,2 +1,2 @@
-# MULTIMODAL STACKED CROSS ATTENTION NETWORK FOR FINE-GRAINED FAKE NEWS DETECTION
+# Multimodal Stacked Cross Attention Network FOR Fine-Grained Fake News Detection
 Updating
