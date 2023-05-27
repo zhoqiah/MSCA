@@ -1,5 +1,7 @@
 """
-Date: 2022/10/27
+Name: main
+Date: 2022/4/11 上午10:25
+Version: 1.0
 """
 
 import os
@@ -12,14 +14,15 @@ import torch
 import torch.nn.modules as nn
 import dev_process
 import test_process
-# import model
-import model_origin
+import model
+# import model_origin
 from transformers import BertTokenizer, RobertaTokenizer
 import numpy as np
 from util.write_file import WriteFile
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
-from model_origin import ModelParam
+# from model_origin import ModelParam
+from model import ModelParam
 
 
 if __name__ == '__main__':
@@ -33,7 +36,7 @@ if __name__ == '__main__':
     parse.add_argument('-gpu0_bsz', type=int, default=0,
                        help='the first GPU batch size')
     parse.add_argument('-epoch', type=int, default=10, help='train epoch num')  # 30
-    parse.add_argument('-batch_size', type=int, default=24,
+    parse.add_argument('-batch_size', type=int, default=12,
                        help='batch size number') # transformer:16, multiheadattention: 32
     parse.add_argument('-acc_grad', type=int, default=1, help='Number of steps to accumulate gradient on '
                                                               '(divide the batch_size and accumulate)')
@@ -43,7 +46,7 @@ if __name__ == '__main__':
                        default=1e-9, help='the minimum lr')
     parse.add_argument('-warmup_step_epoch', type=float,
                        default=2, help='warmup learning step')  #2
-    parse.add_argument('-num_workers', type=int, default=6,
+    parse.add_argument('-num_workers', type=int, default=4,
                        help='loader dataset thread number')  # 0
     parse.add_argument('-l_dropout', type=float, default=0.1,
                        help='classify linear dropout')  # 0.1
@@ -78,9 +81,14 @@ if __name__ == '__main__':
     parse.add_argument('-tran_num_layers', type=int, default=5, help='The layer of transformer') # 3
     parse.add_argument('-image_num_layers', type=int, default=1, help='The layer of images transformer')  #3
     parse.add_argument('-train_fuse_model_epoch', type=int, default=20, help='The number of epoch of the model that only trains the fusion layer')  # 10
-    parse.add_argument('-cl_loss_alpha', type=int, default=1, help='Weight of contrastive learning loss value')
-    parse.add_argument('-cl_self_loss_alpha', type=int, default=1, help='Weight of contrastive learning loss value')
-    parse.add_argument('-temperature', type=float, default=0.07, help='Temperature used to calculate contrastive learning loss')
+
+    parse.add_argument('--raw_feature_norm', default="clipped_l2norm", help='clipped_l2norm|l2norm|clipped_l1norm|l1norm|no_norm|softmax')
+    parse.add_argument('--agg_func', default="LogSumExp", help='LogSumExp|Mean|Max|Sum')
+    parse.add_argument('--cross_attn', default="i2t", help='t2i|i2t')  # t2i
+    parse.add_argument('--margin', default=0.2, type=float, help='Rank loss margin.')
+    parse.add_argument('--max_violation', action='store_true', help='Use max instead of sum in the rank loss.')
+    parse.add_argument('--lambda_softmax', default=9., type=float, help='Attention softmax temperature.')
+    parse.add_argument('--lambda_lse', default=6., type=float, help='LogSumExp temp.')
 
 
     # 布尔类型的参数
@@ -103,12 +111,12 @@ if __name__ == '__main__':
     assert opt.batch_size % opt.acc_grad == 0
     opt.acc_batch_size = opt.batch_size // opt.acc_grad
 
+    # CE（交叉熵），SCE（标签平滑的交叉熵），Focal（focal loss），Ghm（ghm loss）
     critertion = None
     if opt.loss_type == 'CE':
         critertion = nn.CrossEntropyLoss()
 
-    # cl_fuse_model = model.CLModel(opt)
-    cl_fuse_model = model_origin.CLModel(opt)
+    cl_fuse_model = model.CLModel(opt)
     if opt.cuda is True:
         assert torch.cuda.is_available()
         if len(opt.gpu_num) > 1:
@@ -121,7 +129,7 @@ if __name__ == '__main__':
                 python -m torch.distributed.launch --nproc_per_node=2 main.py
                 """
                 print('当前GPU编号：', opt.local_rank)
-                torch.cuda.set_device(opt.local_rank)
+                torch.cuda.set_device(opt.local_rank) # 在进行其他操作之前必须先设置这个
                 torch.distributed.init_process_group(backend='nccl')
                 cl_fuse_model = cl_fuse_model.cuda()
                 cl_fuse_model = nn.parallel.DistributedDataParallel(cl_fuse_model, find_unused_parameters=True)
@@ -135,7 +143,15 @@ if __name__ == '__main__':
     if opt.text_model == 'bert-base':
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased/vocab.txt')
 
-    if opt.data_type == 'fakenews':
+    if opt.data_type == 'HFM':
+        data_path_root = abl_path + 'dataset/data/HFM/'
+        train_data_path = data_path_root + 'train.json'
+        dev_data_path = data_path_root + 'valid.json'
+        test_data_path = data_path_root + 'test.json'
+        photo_path = data_path_root + '/dataset_image'
+        image_coordinate = None
+        data_translation_path = data_path_root + '/HFM.json'
+    elif opt.data_type == 'fakenews':
         data_path_root = abl_path + 'dataset/data/FAKENews/'
         train_data_path = data_path_root + 'train.json'
         dev_data_path = data_path_root + 'valid.json'
@@ -177,6 +193,8 @@ if __name__ == '__main__':
         data_translation_path = abl_path + 'dataset/data/' + opt.data_type + '/' + opt.data_type + '_translation.json'
 
 
+
+    # data_type:标识数据的类型，1是训练数据，2是开发集，3是测试数据
     train_loader, opt.train_data_len = data_process.data_process(opt, train_data_path, tokenizer, photo_path, data_type=1, data_translation_path=data_translation_path,
                                                                  image_coordinate=image_coordinate)
     dev_loader, opt.dev_data_len = data_process.data_process(opt, dev_data_path, tokenizer, photo_path, data_type=2, data_translation_path=data_translation_path,

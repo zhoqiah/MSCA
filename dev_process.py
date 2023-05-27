@@ -5,7 +5,7 @@ Version: 1.0
 """
 import math
 
-from model1 import ModelParam
+from model import ModelParam
 import torch
 from util.write_file import WriteFile
 from sklearn.metrics import accuracy_score, f1_score, recall_score, precision_score
@@ -15,6 +15,7 @@ import test_process
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 # import tensorflow as tf
+from SCAttention import *
 
 
 def dev_process(opt, critertion, cl_model, dev_loader, test_loader=None, last_F1=None, last_Accuracy=None, train_log=None, log_summary_writer:SummaryWriter=None):
@@ -25,6 +26,10 @@ def dev_process(opt, critertion, cl_model, dev_loader, test_loader=None, last_F1
 
     orgin_param = ModelParam()
 
+    contrastive_criterion = ContrastiveLoss(opt=opt,
+                                            margin=opt.margin,
+                                            max_violation=opt.max_violation)
+
     with torch.no_grad():
         cl_model.eval()
         dev_loader_tqdm = tqdm(dev_loader, desc='Dev Iteration')
@@ -34,7 +39,7 @@ def dev_process(opt, critertion, cl_model, dev_loader, test_loader=None, last_F1
             # texts_origin, bert_attention_mask, image_origin, text_image_mask, labels, \
             # texts_augment, bert_attention_mask_augment, image_augment, text_image_mask_augment, _ = data
             texts_origins, bert_attention_mask, image_origin, text_image_mask, labels, \
-            texts_augment, bert_attention_mask_augment, image_augment, text_image_mask_augment, _ = data
+            texts_augment, bert_attention_mask_augment, image_augment, text_image_mask_augment, _, images_path = data
 
             texts_origin, text = texts_origins
             # continue
@@ -47,9 +52,14 @@ def dev_process(opt, critertion, cl_model, dev_loader, test_loader=None, last_F1
                 labels = labels.cuda()
             orgin_param.set_data_param(texts=texts_origin, bert_attention_mask=bert_attention_mask, images=image_origin,
                                        text_image_mask=text_image_mask)
-            origin_res = cl_model(orgin_param, text=text)
 
-            loss = critertion(origin_res, labels) / opt.acc_batch_size
+            # origin_res = cl_model(orgin_param, text=text)
+            origin_res, image_init, text_init, text_length = cl_model(orgin_param, labels=labels, text=text)
+            loss_contrastive = contrastive_criterion(image_init, text_init, text_length)
+
+            loss = critertion(origin_res, labels) + loss_contrastive / opt.acc_batch_size
+            # loss = critertion(origin_res, labels) / opt.acc_batch_size
+            # loss = loss_contrastive / opt.acc_batch_size
             dev_loss += loss.item()
             _, predicted = torch.max(origin_res, 1)
             total_labels += labels.size(0)
