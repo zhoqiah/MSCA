@@ -1,5 +1,8 @@
 """
-Date: 2022/10/27
+Name: train_process
+Date: 2022/4/11 上午10:26
+Version: 1.0
+
 """
 
 import torch
@@ -11,50 +14,11 @@ from util.write_file import WriteFile
 import dev_process
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
-from model1 import ModelParam
+from model import ModelParam
 # import tensorflow as tf
 import torch.nn.functional as F
+from SCAttention import *
 
-
-def simcse_unsup_loss(y_pred, device='cuda:0', temp=0.05):
-    y_pred (tensor): bert的输出, [batch_size * 2, 768]
-    """
-    # 得到y_pred对应的label, [1, 0, 3, 2, ..., batch_size-1, batch_size-2]
-    y_true = torch.arange(y_pred.shape[0], device=device)
-    y_true = (y_true - y_true % 2 * 2) + 1
-
-    # batch内两两计算相似度, 得到相似度矩阵(对角矩阵)
-    # [batch_size * 2, 1, 768] * [1, batch_size * 2, 768] = [batch_size * 2, batch_size * 2]
-    sim = F.cosine_similarity(y_pred.unsqueeze(1), y_pred.unsqueeze(0), dim=-1)
-
-    # 将相似度矩阵对角线置为很小的值, 消除自身的影响
-    sim = sim - torch.eye(y_pred.shape[0], device=device) * 1e12
-    sim = sim / temp  # 相似度矩阵除以温度系数
-
-    # 计算相似度矩阵与y_true的交叉熵损失
-    loss = F.cross_entropy(sim, y_true)
-    return torch.mean(loss)
-
-
-def simcse_sup_loss(y_pred, device='cuda:0'):
-    y_pred (tensor): bert的输出, [batch_size * 3, 768]
-
-    """
-    # 得到y_pred对应的label, 每第三句没有label, 跳过, label= [1, 0, 4, 3, ...]
-    y_true = torch.arange(y_pred.shape[0], device=device)
-    use_row = torch.where((y_true + 1) % 2 != 0)[0]
-    y_true = (use_row - use_row % 2 * 2) + 1
-    # batch内两两计算相似度, 得到相似度矩阵(对角矩阵)
-    sim = F.cosine_similarity(y_pred.unsqueeze(1), y_pred.unsqueeze(0), dim=-1)
-    # 将相似度矩阵对角线置为很小的值, 消除自身的影响
-    sim = sim - torch.eye(y_pred.shape[0], device=device) * 1e12
-    # 选取有效的行
-    sim = torch.index_select(sim, 0, use_row)
-    # 相似度矩阵除以温度系数
-    sim = sim / 0.05
-    # 计算相似度矩阵与y_true的交叉熵损失
-    loss = F.cross_entropy(sim, y_true)
-    return loss
 
 
 def train_process(opt, train_loader, dev_loader, test_loader, cl_model, critertion, log_summary_writer:SummaryWriter=None, tokenizer=None, image_id_list=None):
@@ -82,6 +46,9 @@ def train_process(opt, train_loader, dev_loader, test_loader, cl_model, criterti
     orgin_param = ModelParam()
     augment_param = ModelParam()
 
+    contrastive_criterion = ContrastiveLoss(opt=opt,
+                                     margin=opt.margin,
+                                     max_violation=opt.max_violation)
     last_F1 = 0
     last_Accuracy = 0
     for epoch in trange(opt.epoch, desc='Epoch:'):
@@ -124,19 +91,14 @@ def train_process(opt, train_loader, dev_loader, test_loader, cl_model, criterti
             orgin_param.set_data_param(texts=texts_origin, bert_attention_mask=bert_attention_mask, images=image_origin, text_image_mask=text_image_mask)
             augment_param.set_data_param(texts=texts_augment, bert_attention_mask=bert_attention_mask_augment, images=image_augment, text_image_mask=text_image_mask_augment)
 
-            origin_res, l_pos_neg, cl_lables, cl_self_loss = cl_model(orgin_param, augment_param, labels, target_labels, text)
-
+            origin_res, image_init, text_init, text_length = cl_model(orgin_param, augment_param, labels, target_labels, text)
+            loss_contrastive = contrastive_criterion(image_init, text_init, text_length)
             classify_loss = critertion(origin_res, labels)
-            cl_loss = critertion(l_pos_neg, cl_lables)
-            loss = classify_loss / opt.acc_batch_size
 
-            # add simcse
-            # simcse_loss = simcse_sup_loss(origin_res)
-            # logit, flat_labels = flat_loss(origin_res)
-            # flatloss = critertion(logit, flat_labels)
-            # loss = (classify_loss + simcse_loss) / opt.acc_batch_size
-
-            # loss = (classify_loss + cl_loss) / opt.acc_batch_size
+            # 去掉对比学习损失
+            loss = classify_loss + loss_contrastive / opt.acc_batch_size
+            # loss = classify_loss / opt.acc_batch_size
+            # loss = loss_contrastive / opt.acc_batch_size
 
             # loss = (classify_loss + cl_loss * opt.cl_loss_alpha + cl_self_loss * opt.cl_self_loss_alpha) / opt.acc_batch_size
             # optimizer.zero_grad()
@@ -148,8 +110,8 @@ def train_process(opt, train_loader, dev_loader, test_loader, cl_model, criterti
                 if log_summary_writer:
                     log_summary_writer.add_scalar('train_info/loss', loss.item(), global_step=step_num + epoch_step_num)
                     log_summary_writer.add_scalar('train_info/classify_loss', classify_loss.item(), global_step=step_num + epoch_step_num)
-                    log_summary_writer.add_scalar('train_info/cl_loss', cl_loss.item(), global_step=step_num + epoch_step_num)
-                    log_summary_writer.add_scalar('train_info/cl_self_loss', cl_self_loss.item(), global_step=step_num + epoch_step_num)
+                    log_summary_writer.add_scalar('train_info/cl_loss', loss_contrastive.item(), global_step=step_num + epoch_step_num)
+                    # log_summary_writer.add_scalar('train_info/cl_self_loss', cl_self_loss.item(), global_step=step_num + epoch_step_num)
                     log_summary_writer.add_scalar('train_info/lr', optimizer.param_groups[0]['lr'], global_step=step_num + epoch_step_num)
                     log_summary_writer.add_scalar('train_info/fuse_lr', optimizer.param_groups[1]['lr'], global_step=step_num + epoch_step_num)
                 optimizer.step()

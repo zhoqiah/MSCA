@@ -13,6 +13,7 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 # import tensorflow as tf
 import math
+from SCAttention import *
 
 
 def test_process(opt, critertion, cl_model, test_loader, last_F1=None, log_summary_writer: SummaryWriter=None, epoch=None):
@@ -23,20 +24,20 @@ def test_process(opt, critertion, cl_model, test_loader, last_F1=None, log_summa
 
     orgin_param = ModelParam()
 
+    contrastive_criterion = ContrastiveLoss(opt=opt,
+                                            margin=opt.margin,
+                                            max_violation=opt.max_violation)
+
     with torch.no_grad():
         cl_model.eval()
         test_loader_tqdm = tqdm(test_loader, desc='Test Iteration')
         epoch_step_num = epoch * test_loader_tqdm.total
         step_num = 0
         for index, data in enumerate(test_loader_tqdm):
-            # texts_origin, bert_attention_mask, image_origin, text_image_mask, labels, \
-            # texts_augment, bert_attention_mask_augment, image_augment, text_image_mask_augment, _ = data
-
             texts_origins, bert_attention_mask, image_origin, text_image_mask, labels, \
-            texts_augment, bert_attention_mask_augment, image_augment, text_image_mask_augment, _ = data
+            texts_augment, bert_attention_mask_augment, image_augment, text_image_mask_augment, _, images_path = data
 
             texts_origin, text = texts_origins
-            # continue
 
             if opt.cuda is True:
                 texts_origin = texts_origin.cuda()
@@ -47,9 +48,15 @@ def test_process(opt, critertion, cl_model, test_loader, last_F1=None, log_summa
 
             orgin_param.set_data_param(texts=texts_origin, bert_attention_mask=bert_attention_mask, images=image_origin,
                                        text_image_mask=text_image_mask)
-            origin_res = cl_model(orgin_param, text=text)
 
-            loss = critertion(origin_res, labels) / opt.acc_batch_size
+            origin_res, image_init, text_init, text_length = cl_model(orgin_param, labels=labels, text=text)
+            loss_contrastive = contrastive_criterion(image_init, text_init, text_length)
+
+            loss = critertion(origin_res, labels) + loss_contrastive / opt.acc_batch_size
+            # loss = loss_contrastive / opt.acc_batch_size
+            # origin_res = cl_model(orgin_param, text=text)
+
+            # loss = critertion(origin_res, labels) / opt.acc_batch_size
             test_loss += loss.item()
             _, predicted = torch.max(origin_res, 1)
             total_labels += labels.size(0)
@@ -71,13 +78,13 @@ def test_process(opt, critertion, cl_model, test_loader, last_F1=None, log_summa
         test_F1_weighted = f1_score(y_true, y_pre, average='weighted')
         test_R_weighted = recall_score(y_true, y_pre, average='weighted')
         test_precision_weighted = precision_score(y_true, y_pre, average='weighted')
-        categories_report = classification_report(y_true, y_pre, digits=4)
+        # categories_report = classification_report(y_true, y_pre, digits=4)
 
         save_content = 'Test : Accuracy: %.6f, F1(weighted): %.6f, Precision(weighted): %.6f, R(weighted): %.6f, F1(macro): %.6f, Precision: %.6f, R: %.6f, loss: %.6f' % \
             (test_accuracy, test_F1_weighted, test_precision_weighted, test_R_weighted, test_F1, test_precision, test_R, test_loss)
 
         print(save_content)
-        print(categories_report)
+        # print(categories_report)
 
         if log_summary_writer:
             log_summary_writer.add_scalar('test_info/loss_epoch', test_loss, global_step=epoch)
