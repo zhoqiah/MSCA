@@ -3,4 +3,4 @@ Updating
 This is a PyTorch implementation of the MSCA algorithm.
 
 
-code cite from Stacked Cross Attention for Image-Text Matching.
+part of code cite from Stacked Cross Attention for Image-Text Matching.
